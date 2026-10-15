@@ -255,7 +255,166 @@ BEGIN
     END IF;
 END $$;
 
+-- ----------------------------------------------------------------------------
+-- Test 5: Verify Non-Overlapping Subscription Periods via GiST (B47, Rule 10)
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_org_id UUID;
+    v_plan_id UUID;
+    v_licence_id UUID;
+    v_period1_id UUID;
+    v_period2_id UUID;
+    v_exclusion_caught BOOLEAN := FALSE;
+BEGIN
+    SELECT id INTO v_org_id FROM organisation LIMIT 1;
+
+    INSERT INTO subscription_plan (plan_code, plan_name, price_amount)
+    VALUES ('TEST_CORP_PLAN', 'Corporate Test Plan', 49999.00)
+    RETURNING id INTO v_plan_id;
+
+    INSERT INTO subscription_licence (
+        organisation_id, licence_key, max_users, max_devices_per_user,
+        valid_from, valid_until
+    ) VALUES (
+        v_org_id, 'LIC-TEST-XYZ-123', 10, 2,
+        '2026-01-01 00:00:00+00', '2027-01-01 00:00:00+00'
+    ) RETURNING id INTO v_licence_id;
+
+    -- Period 1: Jan 1 to Jul 1 -> MUST SUCCEED
+    INSERT INTO subscription_period (
+        subscription_licence_id, subscription_plan_id, period_window
+    ) VALUES (
+        v_licence_id, v_plan_id,
+        tstzrange('2026-01-01 00:00:00+00', '2026-07-01 00:00:00+00')
+    ) RETURNING id INTO v_period1_id;
+
+    -- Period 2: Jun 1 to Dec 1 (OVERLAPS with Period 1 for same licence!) -> MUST FAIL WITH EXCLUSION VIOLATION
+    BEGIN
+        INSERT INTO subscription_period (
+            subscription_licence_id, subscription_plan_id, period_window
+        ) VALUES (
+            v_licence_id, v_plan_id,
+            tstzrange('2026-06-01 00:00:00+00', '2026-12-01 00:00:00+00')
+        ) RETURNING id INTO v_period2_id;
+    EXCEPTION WHEN exclusion_violation THEN
+        v_exclusion_caught := TRUE;
+    END;
+
+    IF NOT v_exclusion_caught THEN
+        RAISE EXCEPTION 'FAILED: ex_subscription_period_no_overlap allowed overlapping subscription periods!';
+    ELSE
+        RAISE NOTICE 'PASSED: GiST exclusion constraint correctly rejected overlapping subscription periods.';
+    END IF;
+END $$;
+
+-- ----------------------------------------------------------------------------
+-- Test 6: Verify Consultant Openness Rule (B46)
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_user_id UUID;
+    v_org_id UUID;
+    v_role_id UUID;
+    v_ind_id UUID;
+    v_emp_type_id UUID;
+    v_work_mode_id UUID;
+    v_city_id UUID;
+    v_job_closed_id UUID;
+    v_sourcing_id UUID;
+    v_error_caught BOOLEAN := FALSE;
+BEGIN
+    SELECT id INTO v_org_id FROM organisation LIMIT 1;
+    SELECT id INTO v_role_id FROM job_role LIMIT 1;
+    SELECT id INTO v_ind_id FROM industry LIMIT 1;
+    SELECT id INTO v_emp_type_id FROM employment_type LIMIT 1;
+    SELECT id INTO v_work_mode_id FROM work_mode LIMIT 1;
+    SELECT id INTO v_city_id FROM city LIMIT 1;
+
+    -- Create consultant user
+    INSERT INTO users (email, user_type_code)
+    VALUES ('consultant_tester@talentra.internal', 'consultant')
+    RETURNING id INTO v_user_id;
+
+    -- Create job with is_open_to_consultants = FALSE
+    INSERT INTO job_requirement (
+        organisation_id, job_title, job_role_id, industry_id, employment_type_id,
+        work_mode_id, primary_city_id, job_description, is_open_to_consultants, publish_status_code
+    ) VALUES (
+        v_org_id, 'Internal Only Engineer', v_role_id, v_ind_id, v_emp_type_id,
+        v_work_mode_id, v_city_id, 'Confidential Job', FALSE, 'published'
+    ) RETURNING id INTO v_job_closed_id;
+
+    -- Attempt consultant sourcing request -> MUST FAIL VIA TRIGGER
+    BEGIN
+        INSERT INTO sourcing_request (
+            job_requirement_id, consultant_user_id, employer_organisation_id
+        ) VALUES (
+            v_job_closed_id, v_user_id, v_org_id
+        ) RETURNING id INTO v_sourcing_id;
+    EXCEPTION WHEN OTHERS THEN
+        v_error_caught := TRUE;
+    END;
+
+    IF NOT v_error_caught THEN
+        RAISE EXCEPTION 'FAILED: sourcing_request allowed consultant to act on non-consultant requirement!';
+    ELSE
+        RAISE NOTICE 'PASSED: fn_enforce_consultant_openness correctly blocked unauthorized consultant request.';
+    END IF;
+END $$;
+
+-- ----------------------------------------------------------------------------
+-- Test 7: Verify Wallet Ledger Append-Only Anti-Tamper Trigger (B47, Rule 10)
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_org_id UUID;
+    v_wallet_id UUID;
+    v_ledger_id BIGINT;
+    v_error_caught BOOLEAN := FALSE;
+BEGIN
+    SELECT id INTO v_org_id FROM organisation LIMIT 1;
+
+    INSERT INTO wallet (organisation_id, credit_balance)
+    VALUES (v_org_id, 100.00)
+    ON CONFLICT (organisation_id) DO UPDATE SET credit_balance = wallet.credit_balance
+    RETURNING id INTO v_wallet_id;
+
+    INSERT INTO wallet_ledger (
+        wallet_id, transaction_type_code, credit_delta, running_balance_after, description
+    ) VALUES (
+        v_wallet_id, 'recharge', 100.00, 100.00, 'Initial recharge test'
+    ) RETURNING id INTO v_ledger_id;
+
+    -- Attempt UPDATE on wallet_ledger -> MUST FAIL
+    BEGIN
+        UPDATE wallet_ledger SET credit_delta = 999.00 WHERE id = v_ledger_id;
+    EXCEPTION WHEN OTHERS THEN
+        v_error_caught := TRUE;
+    END;
+
+    IF NOT v_error_caught THEN
+        RAISE EXCEPTION 'FAILED: wallet_ledger allowed UPDATE operation!';
+    ELSE
+        RAISE NOTICE 'PASSED: wallet_ledger correctly blocked UPDATE attempt.';
+    END IF;
+
+    -- Attempt DELETE on wallet_ledger -> MUST FAIL
+    v_error_caught := FALSE;
+    BEGIN
+        DELETE FROM wallet_ledger WHERE id = v_ledger_id;
+    EXCEPTION WHEN OTHERS THEN
+        v_error_caught := TRUE;
+    END;
+
+    IF NOT v_error_caught THEN
+        RAISE EXCEPTION 'FAILED: wallet_ledger allowed DELETE operation!';
+    ELSE
+        RAISE NOTICE 'PASSED: wallet_ledger correctly blocked DELETE attempt.';
+    END IF;
+END $$;
+
 DO $$
 BEGIN
-    RAISE NOTICE '=== All Phase 1 & Phase 2 Domain Rules & Constraints Tests PASSED ===';
+    RAISE NOTICE '=== All Phase 1, Phase 2, & Phase 3 Domain Rules & Constraints Tests PASSED ===';
 END $$;
