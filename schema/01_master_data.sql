@@ -233,3 +233,109 @@ CREATE TABLE IF NOT EXISTS ui_translation (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ui_translation_lookup ON ui_translation (language_code);
+
+-- ----------------------------------------------------------------------------
+-- Function: fn_get_ui_translation (Rule Group 7: Multilingual Fallback Engine)
+-- Fetches translation for a given UI key; automatically falls back to default ('en')
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION fn_get_ui_translation(
+    p_key_name VARCHAR(200),
+    p_target_lang CHAR(2),
+    p_fallback_lang CHAR(2) DEFAULT 'en'
+)
+RETURNS TEXT AS $$
+DECLARE
+    v_translation TEXT;
+BEGIN
+    -- 1. Attempt lookup in target language
+    SELECT t.translated_text INTO v_translation
+    FROM ui_translation t
+    JOIN ui_translation_key k ON t.translation_key_id = k.id
+    WHERE k.key_name = p_key_name
+      AND t.language_code = p_target_lang;
+
+    -- 2. Fallback to default language if target translation is missing
+    IF v_translation IS NULL THEN
+        SELECT t.translated_text INTO v_translation
+        FROM ui_translation t
+        JOIN ui_translation_key k ON t.translation_key_id = k.id
+        WHERE k.key_name = p_key_name
+          AND t.language_code = p_fallback_lang;
+    END IF;
+
+    -- 3. If still missing, return the raw key name
+    RETURN COALESCE(v_translation, p_key_name);
+END;
+$$ LANGUAGE plpgsql;
+
+-- ----------------------------------------------------------------------------
+-- Seed Data: Multilingual UI Strings (English, Hindi, Tamil, Telugu, German, French)
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_k_apply UUID;
+    v_k_salary UUID;
+    v_k_submitted UUID;
+    v_k_hourly UUID;
+BEGIN
+    -- Key 1: btn_apply_now
+    INSERT INTO ui_translation_key (key_name, module_name, description)
+    VALUES ('btn_apply_now', 'Jobs', 'Button label to submit job application')
+    ON CONFLICT (key_name) DO UPDATE SET module_name = EXCLUDED.module_name
+    RETURNING id INTO v_k_apply;
+
+    INSERT INTO ui_translation (translation_key_id, language_code, translated_text) VALUES
+    (v_k_apply, 'en', 'Apply Now'),
+    (v_k_apply, 'hi', 'अभी आवेदन करें'),
+    (v_k_apply, 'ta', 'இப்போதே விண்ணப்பிக்கவும்'),
+    (v_k_apply, 'te', 'ఇప్పుడే దరఖాస్తు చేసుకోండి'),
+    (v_k_apply, 'de', 'Jetzt bewerben'),
+    (v_k_apply, 'fr', 'Postuler maintenant')
+    ON CONFLICT (translation_key_id, language_code) DO NOTHING;
+
+    -- Key 2: lbl_expected_salary
+    INSERT INTO ui_translation_key (key_name, module_name, description)
+    VALUES ('lbl_expected_salary', 'Profile', 'Label for candidate expected salary')
+    ON CONFLICT (key_name) DO UPDATE SET module_name = EXCLUDED.module_name
+    RETURNING id INTO v_k_salary;
+
+    INSERT INTO ui_translation (translation_key_id, language_code, translated_text) VALUES
+    (v_k_salary, 'en', 'Expected Annual CTC'),
+    (v_k_salary, 'hi', 'अपेक्षित वार्षिक वेतन'),
+    (v_k_salary, 'ta', 'எதிர்பார்க்கப்படும் ஆண்டு சம்பளம்'),
+    (v_k_salary, 'te', 'ఆశించిన వార్షిక వేతనం'),
+    (v_k_salary, 'de', 'Erwartetes Jahresgehalt'),
+    (v_k_salary, 'fr', 'Salaire annuel prévu')
+    ON CONFLICT (translation_key_id, language_code) DO NOTHING;
+
+    -- Key 3: msg_application_submitted
+    INSERT INTO ui_translation_key (key_name, module_name, description)
+    VALUES ('msg_application_submitted', 'Applications', 'Success banner after submission')
+    ON CONFLICT (key_name) DO UPDATE SET module_name = EXCLUDED.module_name
+    RETURNING id INTO v_k_submitted;
+
+    INSERT INTO ui_translation (translation_key_id, language_code, translated_text) VALUES
+    (v_k_submitted, 'en', 'Your application has been successfully submitted!'),
+    (v_k_submitted, 'hi', 'आपका आवेदन सफलतापूर्वक जमा कर दिया गया है!'),
+    (v_k_submitted, 'ta', 'உங்கள் விண்ணப்பம் வெற்றிகரமாக சமர்ப்பிக்கப்பட்டது!'),
+    (v_k_submitted, 'te', 'మీ దరఖాస్తు విజయవంతంగా సమర్పించబడింది!'),
+    (v_k_submitted, 'de', 'Ihre Bewerbung wurde erfolgreich eingereicht!'),
+    (v_k_submitted, 'fr', 'Votre candidature a été soumise avec succès !')
+    ON CONFLICT (translation_key_id, language_code) DO NOTHING;
+
+    -- Key 4: lbl_hourly_rate
+    INSERT INTO ui_translation_key (key_name, module_name, description)
+    VALUES ('lbl_hourly_rate', 'Gig', 'Hourly billing rate for gig workers')
+    ON CONFLICT (key_name) DO UPDATE SET module_name = EXCLUDED.module_name
+    RETURNING id INTO v_k_hourly;
+
+    INSERT INTO ui_translation (translation_key_id, language_code, translated_text) VALUES
+    (v_k_hourly, 'en', 'Hourly Rate'),
+    (v_k_hourly, 'hi', 'प्रति घंटा दर'),
+    (v_k_hourly, 'ta', 'மணிநேர கட்டணம்'),
+    (v_k_hourly, 'te', 'గంటకు రుసుము'),
+    (v_k_hourly, 'de', 'Stundensatz'),
+    (v_k_hourly, 'fr', 'Taux horaire')
+    ON CONFLICT (translation_key_id, language_code) DO NOTHING;
+END $$;
+
