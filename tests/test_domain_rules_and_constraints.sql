@@ -183,7 +183,79 @@ BEGIN
     END IF;
 END $$;
 
+-- ----------------------------------------------------------------------------
+-- Test 4: Verify GiST Exclusion Constraint against Overlapping Gig Assignments (B35)
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_user_id UUID;
+    v_org_id UUID;
+    v_worker_id UUID;
+    v_req1_id UUID;
+    v_req2_id UUID;
+    v_app1_id UUID;
+    v_app2_id UUID;
+    v_assign1_id UUID;
+    v_assign2_id UUID;
+    v_exclusion_caught BOOLEAN := FALSE;
+BEGIN
+    -- Create test user & gig worker
+    INSERT INTO users (email, user_type_code)
+    VALUES ('gigworker_test@talentra.internal', 'candidate')
+    RETURNING id INTO v_user_id;
+
+    INSERT INTO gig_worker_profile (user_id, professional_headline, hourly_rate_amount, primary_service_offering)
+    VALUES (v_user_id, 'Expert Cloud Architect', 2500.00, 'Cloud Infrastructure Migration')
+    RETURNING id INTO v_worker_id;
+
+    SELECT id INTO v_org_id FROM organisation LIMIT 1;
+
+    -- Create two separate gig requests
+    INSERT INTO gig_request (organisation_id, title, description, project_category, budget_amount, gig_window)
+    VALUES (v_org_id, 'Gig Request 1', 'Migration', 'DevOps', 100000.00,
+            tstzrange('2026-11-01 09:00:00+00', '2026-11-05 18:00:00+00'))
+    RETURNING id INTO v_req1_id;
+
+    INSERT INTO gig_request (organisation_id, title, description, project_category, budget_amount, gig_window)
+    VALUES (v_org_id, 'Gig Request 2', 'Optimization', 'DevOps', 80000.00,
+            tstzrange('2026-11-03 09:00:00+00', '2026-11-08 18:00:00+00'))
+    RETURNING id INTO v_req2_id;
+
+    -- Create applications
+    INSERT INTO gig_application (gig_request_id, gig_worker_profile_id, bid_amount)
+    VALUES (v_req1_id, v_worker_id, 95000.00) RETURNING id INTO v_app1_id;
+
+    INSERT INTO gig_application (gig_request_id, gig_worker_profile_id, bid_amount)
+    VALUES (v_req2_id, v_worker_id, 75000.00) RETURNING id INTO v_app2_id;
+
+    -- Assignment 1: Nov 1 to Nov 5 -> MUST SUCCEED
+    INSERT INTO gig_assignment (
+        gig_request_id, gig_worker_profile_id, gig_application_id, agreed_amount, assignment_window
+    ) VALUES (
+        v_req1_id, v_worker_id, v_app1_id, 95000.00,
+        tstzrange('2026-11-01 09:00:00+00', '2026-11-05 18:00:00+00')
+    ) RETURNING id INTO v_assign1_id;
+
+    -- Assignment 2: Nov 3 to Nov 8 (OVERLAPS with Assignment 1 for same worker!) -> MUST FAIL WITH EXCLUSION VIOLATION
+    BEGIN
+        INSERT INTO gig_assignment (
+            gig_request_id, gig_worker_profile_id, gig_application_id, agreed_amount, assignment_window
+        ) VALUES (
+            v_req2_id, v_worker_id, v_app2_id, 75000.00,
+            tstzrange('2026-11-03 09:00:00+00', '2026-11-08 18:00:00+00')
+        ) RETURNING id INTO v_assign2_id;
+    EXCEPTION WHEN exclusion_violation THEN
+        v_exclusion_caught := TRUE;
+    END;
+
+    IF NOT v_exclusion_caught THEN
+        RAISE EXCEPTION 'FAILED: ex_gig_assignment_no_overlap allowed overlapping gig assignments for worker!';
+    ELSE
+        RAISE NOTICE 'PASSED: GiST exclusion constraint correctly rejected overlapping gig window for worker.';
+    END IF;
+END $$;
+
 DO $$
 BEGIN
-    RAISE NOTICE '=== All Phase 1 Domain Rules & Constraints Tests PASSED ===';
+    RAISE NOTICE '=== All Phase 1 & Phase 2 Domain Rules & Constraints Tests PASSED ===';
 END $$;
