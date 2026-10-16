@@ -62,23 +62,3 @@ Database-Design-Hackathon-Docket/
 ```
 
 ---
-
-## 🚀 Delivery Plan & Commit Roadmap
-
-| Commit # | Phase & Milestones | Backlogs Covered | Focus & Deliverables |
-| :-: | :--- | :--- | :--- |
-| **Commit 1** | Phase 1 (M1) | B1 – B3 | Engine decision (PostgreSQL 17), full module catalog, solo roadmap, baseline architecture. |
-| **Commit 2** | Phase 1 (M2–M6) | B4 – B23 | Common Schemas: Master Data, Candidate Profiles, Job Requirements & Applications Pipeline. |
-| **Commit 3** | Phase 2 (M7–M10) | B24 – B35 | Individual Sprint 1: Administration, Organisation Hierarchies, Gig Marketplace with GiST constraints. |
-| **Commit 4** | Phase 3 (M11–M14) | B36 – B47 | Individual Sprint 2: Licences & Devices, Sourcing & Outreach, Subscriptions & Append-Only Ledgers. |
-| **Commit 5** | Phase 4 (M15–M18) | B48 – B59 | Engagement, Reference Domains (Tier 3), Star Schema Data Marts & Database-Enforced Security. |
-| **Commit 6** | Phase 5 (M19) | B60 – B64 | High-Performance Synthetic Seeding Engine & Laptop-Scale Seeding (1M candidates, 5M apps). |
-| **Commit 7** | Phase 5 (M20–M21) | B65 – B74 | 12-Query Benchmark Suite, Execution Plans (`EXPLAIN ANALYZE`), Index Optimizations, 100M Extrapolation. |
-| **Commit 8** | Phase 5 (M22–M23) | B75 – B82 | Threat Model, RLS Access Verification, Automated Backup/Restore RTO Benchmarking & Gate 2 Sign-off. |
-| **Commit 9** | Final Submission | Final Defense | Competitive Platform Benchmark (vs Naukri/Monster/LinkedIn), Rule Compliance Table, Presentation Pack. |
-
----
-
-## 🧠 Notion Living Brain Integration
-Continuous engineering updates, micro/macro rationale, and timestamped progress logs are synced live to the Notion workspace:
-* **Master Page:** `Docket Hackathon` (Page ID: `3fa7580c-3e49-800a-9a9e-d744d73420ea`)
